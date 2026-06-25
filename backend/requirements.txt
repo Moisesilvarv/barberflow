@@ -1,0 +1,7 @@
+Django
+dj-database-url
+djangorestframework
+django-cors-headers
+djangorestframework-simplejwt
+gunicorn
+whitenoise
