@@ -1,5 +1,6 @@
+import logging
+
 from django.contrib.auth.models import User
-from django.contrib.auth import authenticate
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import serializers
@@ -7,6 +8,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from .models import Appointment, BarberShop
 
+
+logger = logging.getLogger(__name__)
 
 OPENING_HOUR = 9
 CLOSING_HOUR = 18
@@ -89,38 +92,49 @@ class RegisterSerializer(serializers.Serializer):
 
 
 class LoginSerializer(serializers.Serializer):
-    username = serializers.CharField(required=False)
-    email = serializers.EmailField(required=False)
+    email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
 
     def validate(self, attrs):
-        email = attrs.get("email")
-        username = attrs.get("username")
+        email = attrs.get("email", "").strip().lower()
         password = attrs.get("password")
 
-        if email and not username:
-            user_by_email = (
-                User.objects.filter(email=email, barbershop__isnull=False, is_active=True)
-                .order_by("id")
-                .first()
-            )
-            if not user_by_email:
-                user_by_email = User.objects.filter(email=email, is_active=True).order_by("id").first()
-            if user_by_email:
-                username = user_by_email.username
+        logger.info("Login attempt received for email=%s", email)
 
-        if not username:
-            raise serializers.ValidationError("Username or email is required.")
+        users = list(User.objects.filter(email__iexact=email).order_by("id"))
+        logger.info("Login lookup users_found=%s for email=%s", len(users), email)
 
-        user = authenticate(
-            request=self.context.get("request"),
-            username=username,
-            password=password,
+        if not users:
+            logger.warning("Login failed: user not found for email=%s", email)
+            raise serializers.ValidationError("Invalid credentials.")
+
+        active_users = [user for user in users if user.is_active]
+        if not active_users:
+            logger.warning("Login failed: inactive user for email=%s", email)
+            raise serializers.ValidationError("Invalid credentials.")
+
+        users_with_barber_shop = [
+            user for user in active_users if hasattr(user, "barbershop")
+        ]
+        if not users_with_barber_shop:
+            logger.warning("Login failed: user has no BarberShop for email=%s", email)
+            raise serializers.ValidationError("Invalid credentials.")
+
+        user = users_with_barber_shop[0]
+        password_is_valid = user.check_password(password)
+        logger.info(
+            "Login password check for user_id=%s email=%s valid=%s",
+            user.id,
+            email,
+            password_is_valid,
         )
-        if not user:
+
+        if not password_is_valid:
+            logger.warning("Login failed: invalid password for user_id=%s email=%s", user.id, email)
             raise serializers.ValidationError("Invalid credentials.")
 
         refresh = RefreshToken.for_user(user)
+        logger.info("Login success for user_id=%s email=%s", user.id, email)
         return {
             "access": str(refresh.access_token),
             "refresh": str(refresh),
