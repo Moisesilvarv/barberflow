@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import api from "../services/api";
+import { formatName } from "../utils/formatters";
+import { formatPhone } from "../utils/phone";
 
 export default function Clientes() {
   const [appointments, setAppointments] = useState([]);
@@ -9,7 +11,8 @@ export default function Clientes() {
   useEffect(() => {
     api
       .get("/appointments/")
-      .then((response) => setAppointments(response.data))
+      .then((response) => setAppointments(Array.isArray(response.data) ? response.data : []))
+      .catch(() => setAppointments([]))
       .finally(() => setLoading(false));
   }, []);
 
@@ -48,19 +51,19 @@ export default function Clientes() {
         {loading ? (
           <div className="empty-state">Carregando clientes...</div>
         ) : clients.length === 0 ? (
-          <div className="empty-state">Os clientes aparecem aqui após os primeiros agendamentos.</div>
+          <div className="empty-state">Os clientes aparecem aqui apos os primeiros agendamentos.</div>
         ) : (
           <div className="data-table">
             <div className="table-row table-head">
               <span>Nome</span>
               <span>Telefone</span>
               <span>Agendamentos</span>
-              <span>Último horário</span>
+              <span>Ultimo horario</span>
             </div>
             {clients.map((client) => (
               <div className="table-row" key={client.phone}>
-                <strong>{client.name}</strong>
-                <span>{client.phone}</span>
+                <strong>{formatName(client.name)}</strong>
+                <span>{formatPhone(client.phone)}</span>
                 <span>{client.total}</span>
                 <span>{client.lastDate}</span>
               </div>

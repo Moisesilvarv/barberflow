@@ -1,7 +1,19 @@
-import { useEffect, useState } from "react";
+import { CalendarDays, ChevronLeft, ChevronRight, Clock, Phone } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
-import AppointmentCard from "../components/AppointmentCard.jsx";
+import { useAuth } from "../context/AuthContext.jsx";
+import { useToast } from "../context/ToastContext.jsx";
 import api from "../services/api";
+import { getFriendlyErrorMessage } from "../utils/errors";
+import { formatName, getDisplayName } from "../utils/formatters";
+import { formatPhone, isValidPhone } from "../utils/phone";
+
+const statusLabels = {
+  pending: "Pendente",
+  confirmed: "Confirmado",
+  canceled: "Cancelado",
+};
 
 function todayIso() {
   return new Date().toISOString().slice(0, 10);
@@ -9,6 +21,19 @@ function todayIso() {
 
 function toIsoDate(date) {
   return date.toISOString().slice(0, 10);
+}
+
+function displayDate(isoDate) {
+  if (!isoDate) return "";
+  const [year, month, day] = isoDate.split("-");
+  return `${day}/${month}/${year}`;
+}
+
+function shiftDate(isoDate, amount) {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const nextDate = new Date(year, month - 1, day);
+  nextDate.setDate(nextDate.getDate() + amount);
+  return toIsoDate(nextDate);
 }
 
 function nextDefaultSlot(baseDate = new Date()) {
@@ -48,7 +73,16 @@ function buildEmptyForm(dateOverride) {
   };
 }
 
+function sortAppointments(appointments) {
+  return [...appointments].sort((first, second) => String(first.time).localeCompare(String(second.time)));
+}
+
 export default function Agenda() {
+  const { barberShop, user } = useAuth();
+  const toast = useToast();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const dateInputRef = useRef(null);
   const [appointments, setAppointments] = useState([]);
   const [date, setDate] = useState(todayIso());
   const [form, setForm] = useState(() => buildEmptyForm());
@@ -56,60 +90,102 @@ export default function Agenda() {
   const [modalOpen, setModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
 
   async function loadAppointments(selectedDate = date) {
     setLoading(true);
-    const response = await api.get("/appointments/", { params: { date: selectedDate } });
-    setAppointments(response.data);
-    setLoading(false);
+    try {
+      const response = await api.get("/appointments/", { params: { date: selectedDate } });
+      setAppointments(Array.isArray(response.data) ? response.data : []);
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     loadAppointments(date);
   }, [date]);
 
+  const sortedAppointments = useMemo(() => sortAppointments(appointments), [appointments]);
+  const activeAppointments = sortedAppointments.filter((appointment) => appointment.status !== "canceled");
+  const confirmedCount = sortedAppointments.filter((appointment) => appointment.status === "confirmed").length;
+  const nextAppointment = activeAppointments[0];
+  const displayName = getDisplayName({ user, barberShop });
+
+  function openDatePicker() {
+    const input = dateInputRef.current;
+    if (!input) return;
+
+    input.focus();
+    if (typeof input.showPicker === "function") {
+      input.showPicker();
+    } else {
+      input.click();
+    }
+  }
+
   function updateField(event) {
-    setForm((current) => ({ ...current, [event.target.name]: event.target.value }));
+    const { name, value } = event.target;
+    setForm((current) => ({
+      ...current,
+      [name]: name === "client_phone" ? formatPhone(value) : value,
+    }));
   }
 
   function openCreateModal() {
     setEditing(null);
     setForm(buildEmptyForm(date));
-    setError("");
     setModalOpen(true);
   }
+
+  useEffect(() => {
+    function handleOpenAppointmentModal() {
+      openCreateModal();
+    }
+
+    window.addEventListener("barberflow:open-appointment-modal", handleOpenAppointmentModal);
+    return () => window.removeEventListener("barberflow:open-appointment-modal", handleOpenAppointmentModal);
+  }, [date]);
+
+  useEffect(() => {
+    if (!location.state?.openAppointmentModal) {
+      return;
+    }
+
+    openCreateModal();
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state?.openAppointmentModal]);
 
   function openEditModal(appointment) {
     setEditing(appointment);
     setForm({
       client_name: appointment.client_name,
-      client_phone: appointment.client_phone,
+      client_phone: formatPhone(appointment.client_phone),
       date: appointment.date,
       time: appointment.time.slice(0, 5),
       status: appointment.status,
     });
-    setError("");
     setModalOpen(true);
   }
 
   async function submitAppointment(event) {
     event.preventDefault();
-    setError("");
 
-    const confirmed = window.confirm(
-      editing ? "Salvar alterações deste agendamento?" : "Criar este agendamento?",
-    );
-    if (!confirmed) {
+    if (!isValidPhone(form.client_phone)) {
+      toast.error("Telefone invalido.");
       return;
     }
+
+    const confirmed = window.confirm(editing ? "Salvar alteracoes deste agendamento?" : "Criar este agendamento?");
+    if (!confirmed) return;
 
     setSubmitting(true);
     try {
       if (editing) {
         await api.patch(`/appointments/${editing.id}/`, form);
+        toast.success("Agendamento atualizado com sucesso.");
       } else {
         await api.post("/appointments/", form);
+        toast.success("Agendamento realizado com sucesso.");
       }
       setModalOpen(false);
       if (form.date !== date) {
@@ -118,69 +194,138 @@ export default function Agenda() {
         await loadAppointments(date);
       }
     } catch (requestError) {
-      const detail = requestError.response?.data?.detail || requestError.response?.data?.non_field_errors?.[0];
-      setError(detail || "Não foi possível salvar o agendamento.");
+      toast.error(getFriendlyErrorMessage(requestError, "Nao foi possivel salvar o agendamento."));
     } finally {
       setSubmitting(false);
     }
   }
 
   async function confirmAppointment(appointment) {
-    const confirmed = window.confirm(`Confirmar o horário de ${appointment.client_name}?`);
-    if (!confirmed) {
-      return;
-    }
+    const confirmed = window.confirm(`Confirmar o horario de ${formatName(appointment.client_name)}?`);
+    if (!confirmed) return;
 
-    await api.patch(`/appointments/${appointment.id}/`, { status: "confirmed" });
-    await loadAppointments(date);
+    try {
+      await api.patch(`/appointments/${appointment.id}/`, { status: "confirmed" });
+      await loadAppointments(date);
+      toast.success("Agendamento confirmado com sucesso.");
+    } catch (requestError) {
+      toast.error(getFriendlyErrorMessage(requestError, "Nao foi possivel confirmar o agendamento."));
+    }
   }
 
   async function cancelAppointment(appointment) {
-    const confirmed = window.confirm(`Cancelar o horário de ${appointment.client_name}?`);
-    if (!confirmed) {
-      return;
-    }
+    const confirmed = window.confirm(`Cancelar o horario de ${formatName(appointment.client_name)}?`);
+    if (!confirmed) return;
 
-    await api.delete(`/appointments/${appointment.id}/`);
-    await loadAppointments(date);
+    try {
+      await api.delete(`/appointments/${appointment.id}/`);
+      await loadAppointments(date);
+      toast.success("Agendamento cancelado com sucesso.");
+    } catch (requestError) {
+      toast.error(getFriendlyErrorMessage(requestError, "Nao foi possivel cancelar o agendamento."));
+    }
   }
 
   return (
-    <div className="page-stack">
-      <div className="page-heading">
+    <div className="agenda-page">
+      <header className="agenda-hero">
         <div>
-          <p className="eyebrow">Agenda</p>
-          <h2>Horários da barbearia</h2>
+          <p>Ol&aacute; &middot; {displayName}</p>
+          <h1>Hor&aacute;rios da barbearia</h1>
         </div>
-        <button className="primary-button compact" type="button" onClick={openCreateModal}>
-          Novo agendamento
+      </header>
+
+      <div className="agenda-date-row">
+        <label className="agenda-date-control" onClick={openDatePicker}>
+          <CalendarDays size={16} strokeWidth={2} />
+          <span>{displayDate(date)}</span>
+          <input
+            ref={dateInputRef}
+            aria-label="Filtrar por data"
+            type="date"
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+          />
+        </label>
+        <button type="button" className="agenda-icon-button" aria-label="Dia anterior" onClick={() => setDate(shiftDate(date, -1))}>
+          <ChevronLeft size={17} strokeWidth={2.1} />
+        </button>
+        <button type="button" className="agenda-icon-button" aria-label="Proximo dia" onClick={() => setDate(shiftDate(date, 1))}>
+          <ChevronRight size={17} strokeWidth={2.1} />
         </button>
       </div>
 
-      <section className="toolbar">
-        <label>
-          Filtrar por data
-          <input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
-        </label>
+      <section className="agenda-summary-grid">
+        <article className="agenda-summary-card">
+          <span>Total hoje</span>
+          <strong>{activeAppointments.length}</strong>
+          <small>{activeAppointments.length === 1 ? "agendamento" : "agendamentos"}</small>
+        </article>
+        <article className="agenda-summary-card">
+          <span>Confirmados</span>
+          <strong>{confirmedCount}</strong>
+          <small>de {activeAppointments.length} total</small>
+        </article>
+        <article className="agenda-summary-card">
+          <span>Pr&oacute;ximo hor&aacute;rio</span>
+          <strong>{nextAppointment ? nextAppointment.time.slice(0, 5) : "--:--"}</strong>
+          <small>{nextAppointment ? formatName(nextAppointment.client_name) : "Nenhum"}</small>
+        </article>
       </section>
 
-      {loading ? (
-        <div className="empty-state">Carregando agendamentos...</div>
-      ) : appointments.length === 0 ? (
-        <div className="empty-state">Nenhum agendamento para esta data.</div>
-      ) : (
-        <div className="appointment-list">
-          {appointments.map((appointment) => (
-            <AppointmentCard
-              appointment={appointment}
-              key={appointment.id}
-              onCancel={cancelAppointment}
-              onConfirm={confirmAppointment}
-              onEdit={openEditModal}
-            />
-          ))}
-        </div>
-      )}
+      <section className="agenda-day-section">
+        <h2>Agenda do dia</h2>
+
+        {loading ? (
+          <div className="agenda-empty-row">
+            <Clock size={18} strokeWidth={2} />
+            Carregando agendamentos...
+          </div>
+        ) : activeAppointments.length === 0 ? (
+          <div className="agenda-empty-row">
+            <Clock size={18} strokeWidth={2} />
+            Nenhum agendamento para esta data
+          </div>
+        ) : (
+          <div className="agenda-list">
+            {activeAppointments.map((appointment) => (
+              <article className="agenda-row-card" key={appointment.id}>
+                <div className="agenda-row-time">
+                  <strong>{appointment.time?.slice(0, 5)}</strong>
+                  <span>{appointment.time?.slice(0, 5) < "12:00" ? "manha" : "tarde"}</span>
+                </div>
+                <div className="agenda-row-client">
+                  <strong>{formatName(appointment.client_name)}</strong>
+                  <span>
+                    <Phone size={14} strokeWidth={1.9} />
+                    {formatPhone(appointment.client_phone)}
+                  </span>
+                </div>
+                <div className="agenda-row-actions">
+                  <span className={`agenda-status agenda-status-${appointment.status}`}>
+                    {statusLabels[appointment.status] || appointment.status}
+                  </span>
+                  <button type="button" className="agenda-action-button" onClick={() => openEditModal(appointment)}>
+                    Editar
+                  </button>
+                  {appointment.status !== "confirmed" && (
+                    <button type="button" className="agenda-action-button" onClick={() => confirmAppointment(appointment)}>
+                      Confirmar
+                    </button>
+                  )}
+                  <button type="button" className="agenda-danger-button" onClick={() => cancelAppointment(appointment)}>
+                    Cancelar
+                  </button>
+                </div>
+              </article>
+            ))}
+            <div className="agenda-empty-row">
+              <Clock size={18} strokeWidth={2} />
+              Nenhum outro agendamento para hoje
+            </div>
+          </div>
+        )}
+      </section>
 
       {modalOpen && (
         <div className="modal-backdrop" role="presentation">
@@ -192,15 +337,20 @@ export default function Agenda() {
               </button>
             </div>
 
-            {error && <div className="form-error">{error}</div>}
-
             <label>
               Cliente
               <input name="client_name" onChange={updateField} required value={form.client_name} />
             </label>
             <label>
               Telefone
-              <input name="client_phone" onChange={updateField} required value={form.client_phone} />
+              <input
+                inputMode="numeric"
+                maxLength={13}
+                name="client_phone"
+                onChange={updateField}
+                required
+                value={form.client_phone}
+              />
             </label>
             <div className="form-grid">
               <label>
@@ -208,7 +358,7 @@ export default function Agenda() {
                 <input name="date" onChange={updateField} required type="date" value={form.date} />
               </label>
               <label>
-                Horário
+                Hor&aacute;rio
                 <input name="time" onChange={updateField} required type="time" step="1800" value={form.time} />
               </label>
             </div>

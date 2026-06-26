@@ -1,3 +1,5 @@
+import { formatPhone } from "../utils/phone";
+
 const statusLabels = {
   pending: "Pendente",
   confirmed: "Confirmado",
@@ -10,7 +12,7 @@ export default function AppointmentCard({ appointment, onConfirm, onCancel, onEd
       <div>
         <div className="appointment-time">{appointment.time?.slice(0, 5)}</div>
         <h3>{appointment.client_name}</h3>
-        <p>{appointment.client_phone}</p>
+        <p>{formatPhone(appointment.client_phone)}</p>
       </div>
       <div className="appointment-actions">
         <span className={`status-badge status-${appointment.status}`}>

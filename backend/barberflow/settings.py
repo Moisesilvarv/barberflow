@@ -28,6 +28,9 @@ DEBUG = env_bool("DEBUG", True)
 if not DEBUG and SECRET_KEY == "django-insecure-barberflow-development-key":
     raise ImproperlyConfigured("Set SECRET_KEY before running BarberFlow in production.")
 
+if not DEBUG and not os.environ.get("DATABASE_URL"):
+    raise ImproperlyConfigured("Set DATABASE_URL before running BarberFlow in production.")
+
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS", "127.0.0.1,localhost,.onrender.com")
 
 
@@ -101,9 +104,9 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 
-LANGUAGE_CODE = "en-us"
+LANGUAGE_CODE = os.environ.get("LANGUAGE_CODE", "pt-br")
 
-TIME_ZONE = "UTC"
+TIME_ZONE = os.environ.get("TIME_ZONE", "America/Sao_Paulo")
 
 USE_I18N = True
 
@@ -158,7 +161,7 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework.permissions.AllowAny",
+        "rest_framework.permissions.IsAuthenticated",
     ],
     "DEFAULT_RENDERER_CLASSES": [
         "rest_framework.renderers.JSONRenderer",

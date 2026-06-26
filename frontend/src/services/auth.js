@@ -20,7 +20,16 @@ export function getRefreshToken() {
 
 export function getStoredUser() {
   const storedUser = localStorage.getItem(USER_KEY);
-  return storedUser ? JSON.parse(storedUser) : null;
+  if (!storedUser) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(storedUser);
+  } catch {
+    localStorage.removeItem(USER_KEY);
+    return null;
+  }
 }
 
 export function saveAuthSession({ access, refresh, user }) {

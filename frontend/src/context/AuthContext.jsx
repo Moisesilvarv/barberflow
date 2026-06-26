@@ -35,14 +35,10 @@ export function AuthProvider({ children }) {
 
   async function login({ email, password }) {
     const response = await api.post("/login/", { email, password });
-    console.log("Login response.data:", response.data);
-
     const { access, refresh, user: loggedUser } = response.data;
-    console.log("Tokens recebidos:", { access, refresh });
-    console.log("Usuário logado:", loggedUser);
 
     if (!access || !refresh || !loggedUser) {
-      throw new Error("Resposta de login inválida: access, refresh ou user ausente.");
+      throw new Error("Resposta de login invalida: access, refresh ou user ausente.");
     }
 
     saveAuthSession({ access, refresh, user: loggedUser });
@@ -51,8 +47,8 @@ export function AuthProvider({ children }) {
 
     try {
       await loadMe();
-    } catch (error) {
-      console.warn("Login concluído, mas não foi possível carregar /me/.", error);
+    } catch {
+      // Login stays valid even if profile hydration fails momentarily.
     }
 
     return response.data;
