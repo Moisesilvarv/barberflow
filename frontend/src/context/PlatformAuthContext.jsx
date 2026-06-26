@@ -39,12 +39,12 @@ export function PlatformAuthProvider({ children }) {
       throw new Error("Resposta de login administrativo invalida.");
     }
 
-    savePlatformAuthSession({ access, refresh, user: loggedUser });
-    setAccessToken(access);
-    setUser({ ...loggedUser, is_platform_admin: true });
-
     try {
-      await validatePlatformAccess();
+      await axios.get(`${API_BASE_URL}/platform/dashboard/`, {
+        headers: {
+          Authorization: `Bearer ${access}`,
+        },
+      });
     } catch (error) {
       clearPlatformSession({ redirect: false });
       clearState();
@@ -55,6 +55,10 @@ export function PlatformAuthProvider({ children }) {
 
       throw error;
     }
+
+    savePlatformAuthSession({ access, refresh, user: loggedUser });
+    setAccessToken(access);
+    setUser({ ...loggedUser, is_platform_admin: true });
 
     return response.data;
   }
