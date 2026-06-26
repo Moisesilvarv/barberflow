@@ -1,18 +1,15 @@
 import axios from "axios";
 
-export function clearStoredAuth() {
-  localStorage.removeItem("barberflow_access");
-  localStorage.removeItem("barberflow_refresh");
-  localStorage.removeItem("barberflow_user");
-  window.dispatchEvent(new Event("barberflow:auth-cleared"));
-}
+import { API_BASE_URL, getAccessToken, logout, refreshToken } from "./auth.js";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "http://127.0.0.1:8000/api",
+  baseURL: API_BASE_URL,
 });
 
+let refreshPromise = null;
+
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("barberflow_access");
+  const token = getAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -21,10 +18,28 @@ api.interceptors.request.use((config) => {
 
 api.interceptors.response.use(
   (response) => response,
-  (error) => {
-    if (error.response?.status === 401) {
-      clearStoredAuth();
+  async (error) => {
+    const originalRequest = error.config;
+    const isUnauthorized = error.response?.status === 401;
+    const isRefreshRequest = originalRequest?.url?.includes("/token/refresh/");
+
+    if (isUnauthorized && originalRequest && !originalRequest._retry && !isRefreshRequest) {
+      originalRequest._retry = true;
+
+      try {
+        refreshPromise = refreshPromise || refreshToken();
+        const newAccessToken = await refreshPromise;
+        refreshPromise = null;
+
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        return api(originalRequest);
+      } catch (refreshError) {
+        refreshPromise = null;
+        logout();
+        return Promise.reject(refreshError);
+      }
     }
+
     return Promise.reject(error);
   },
 );

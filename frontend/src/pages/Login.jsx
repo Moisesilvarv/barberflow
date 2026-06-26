@@ -8,7 +8,7 @@ export default function Login() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   if (isAuthenticated) {
     return <Navigate to="/dashboard" replace />;
@@ -21,15 +21,19 @@ export default function Login() {
   async function handleSubmit(event) {
     event.preventDefault();
     setError("");
-    setSubmitting(true);
+    setLoading(true);
 
     try {
-      await login(form);
+      await login({
+        email: form.email,
+        password: form.password,
+      });
       navigate("/dashboard", { replace: true });
-    } catch {
-      setError("E-mail ou senha inválidos.");
+    } catch (requestError) {
+      console.error("Erro real no login:", requestError);
+      setError("Email ou senha inválidos");
     } finally {
-      setSubmitting(false);
+      setLoading(false);
     }
   }
 
@@ -54,6 +58,7 @@ export default function Login() {
             E-mail
             <input
               autoComplete="email"
+              disabled={loading}
               name="email"
               onChange={updateField}
               placeholder="voce@barbearia.com"
@@ -67,6 +72,7 @@ export default function Login() {
             Senha
             <input
               autoComplete="current-password"
+              disabled={loading}
               name="password"
               onChange={updateField}
               placeholder="Sua senha"
@@ -76,8 +82,8 @@ export default function Login() {
             />
           </label>
 
-          <button className="primary-button" disabled={submitting} type="submit">
-            {submitting ? "Entrando..." : "Entrar no painel"}
+          <button className="primary-button" disabled={loading} type="submit">
+            {loading ? "Entrando..." : "Entrar no painel"}
           </button>
         </form>
       </section>

@@ -1,24 +1,14 @@
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 
 import Header from "./components/Header.jsx";
+import PrivateRoute from "./components/PrivateRoute.jsx";
 import Sidebar from "./components/Sidebar.jsx";
-import { useAuth } from "./context/AuthContext.jsx";
 import Agenda from "./pages/Agenda.jsx";
 import Clientes from "./pages/Clientes.jsx";
 import Configuracoes from "./pages/Configuracoes.jsx";
 import Dashboard from "./pages/Dashboard.jsx";
 import Login from "./pages/Login.jsx";
 import PublicBooking from "./pages/PublicBooking.jsx";
-
-function PrivateRoute() {
-  const { isAuthenticated, loading } = useAuth();
-
-  if (loading) {
-    return <div className="screen-loader">Carregando painel...</div>;
-  }
-
-  return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />;
-}
 
 function AppLayout() {
   return (

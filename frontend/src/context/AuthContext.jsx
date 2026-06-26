@@ -1,17 +1,21 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 
-import api, { clearStoredAuth } from "../services/api";
+import api from "../services/api";
+import {
+  getAccessToken,
+  getRefreshToken,
+  getStoredUser,
+  logout as logoutSession,
+  saveAuthSession,
+} from "../services/auth";
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(() => {
-    const savedUser = localStorage.getItem("barberflow_user");
-    return savedUser ? JSON.parse(savedUser) : null;
-  });
+  const [user, setUser] = useState(() => getStoredUser());
   const [barberShop, setBarberShop] = useState(null);
-  const [accessToken, setAccessToken] = useState(() => localStorage.getItem("barberflow_access"));
-  const [loading, setLoading] = useState(Boolean(localStorage.getItem("barberflow_access")));
+  const [accessToken, setAccessToken] = useState(() => getAccessToken());
+  const [loading, setLoading] = useState(Boolean(getAccessToken()));
 
   const isAuthenticated = Boolean(accessToken);
 
@@ -31,17 +35,31 @@ export function AuthProvider({ children }) {
 
   async function login({ email, password }) {
     const response = await api.post("/login/", { email, password });
-    localStorage.setItem("barberflow_access", response.data.access);
-    localStorage.setItem("barberflow_refresh", response.data.refresh);
-    localStorage.setItem("barberflow_user", JSON.stringify(response.data.user));
-    setAccessToken(response.data.access);
-    setUser(response.data.user);
-    await loadMe();
+    console.log("Login response.data:", response.data);
+
+    const { access, refresh, user: loggedUser } = response.data;
+    console.log("Tokens recebidos:", { access, refresh });
+    console.log("Usuário logado:", loggedUser);
+
+    if (!access || !refresh || !loggedUser) {
+      throw new Error("Resposta de login inválida: access, refresh ou user ausente.");
+    }
+
+    saveAuthSession({ access, refresh, user: loggedUser });
+    setAccessToken(access);
+    setUser(loggedUser);
+
+    try {
+      await loadMe();
+    } catch (error) {
+      console.warn("Login concluído, mas não foi possível carregar /me/.", error);
+    }
+
     return response.data;
   }
 
   async function logout() {
-    const refresh = localStorage.getItem("barberflow_refresh");
+    const refresh = getRefreshToken();
     if (refresh) {
       try {
         await api.post("/logout/", { refresh });
@@ -49,7 +67,8 @@ export function AuthProvider({ children }) {
         // The local session should be cleared even if the refresh token is already invalid.
       }
     }
-    clearStoredAuth();
+
+    logoutSession({ redirect: false });
     clearSessionState();
   }
 
@@ -61,7 +80,7 @@ export function AuthProvider({ children }) {
 
     loadMe()
       .catch(() => {
-        clearStoredAuth();
+        logoutSession({ redirect: false });
         clearSessionState();
       })
       .finally(() => setLoading(false));
