@@ -9,6 +9,9 @@ SUSPENDED_BARBERSHOP_MESSAGE = "Sua conta esta suspensa. Entre em contato com o 
 def is_platform_admin_user(user):
     """Checks the platform admin flag without requiring a custom User model."""
 
+    if getattr(user, "is_superuser", False) or getattr(user, "is_staff", False):
+        return True
+
     profile = getattr(user, "profile", None)
     return bool(profile and profile.is_platform_admin)
 

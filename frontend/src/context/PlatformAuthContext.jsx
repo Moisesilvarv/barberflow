@@ -27,7 +27,7 @@ export function PlatformAuthProvider({ children }) {
   }
 
   async function validatePlatformAccess() {
-    await platformApi.get("/platform/dashboard/");
+    await platformApi.get("/platform/dashboard/", { skipPlatformRedirect: true });
     return true;
   }
 

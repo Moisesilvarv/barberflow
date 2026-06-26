@@ -29,7 +29,7 @@ platformApi.interceptors.response.use(
     const isForbidden = error.response?.status === 403;
     const isRefreshRequest = originalRequest?.url?.includes("/token/refresh/");
 
-    if (isForbidden) {
+    if (isForbidden && !originalRequest?.skipPlatformRedirect) {
       clearPlatformSession({ redirect: true });
       return Promise.reject(error);
     }
